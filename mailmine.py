@@ -1,41 +1,65 @@
 import imaplib
 import email
 import getpass
+from email.parser import Parser
+from email.utils import parseaddr
+from flask import Flask, jsonify, render_template
+import logging
+from hashlib import md5
+
+##### Set up some global data structures
+
+contacts = {}
+
+##### Perform mining
 
 mail = imaplib.IMAP4_SSL('imap.gmail.com')
 try:
     mail.login('jaminy1234@gmail.com', getpass.getpass())
 except imaplib.IMAP4.error:
-    print "LOGIN FAILED!!! "
+    logging.error("LOGIN FAILED!!!")
 
 rv, mailboxes = mail.list()
+
 if rv == 'OK':
-    print "Mailboxes:"
-    print mailboxes
-mail.list() #Lists the folders in the gmail
-mail.select("inbox") # connect to inbox.
+    logging.debug("Discovered Mailboxes: %r", mailboxes)
 
-result, data = mail.uid('search', None, "ALL")  # search and return uids instead
-latest_email_uid = data[0].split()[-1]
-result, data = mail.uid('fetch', latest_email_uid, '(RFC822)')
-raw_email = data[0][1]
+mail.select("INBOX") # connect to inbox.
 
-from email.parser import Parser
-parser = Parser()
+result, data = mail.uid('search', None, "ALL")  # search and return uids
+uids = data[0].split()
 
-emailText = raw_email
-email = parser.parsestr(emailText)
+for uid in uids:
+    result, data = mail.uid('fetch', uid, '(RFC822)')
+    raw_email = data[0][1]
 
-print email.get('From')
-print email.get('To')
-print email.get('Subject')
+    parser = Parser()
 
-'''if email.is_multipart():
-    for part in email.get_payload():
-        print part.get_payload()
-else:
-    print email.get_payload()
-'''
-exml =lxml.html.fromstring(text)
-exml.test_content()
-email.logout
+    emailText = raw_email
+    email = parser.parsestr(emailText)
+
+    sender_realname, sender = parseaddr(email.get('From'))
+
+    if sender not in contacts.keys():
+        contacts[sender] = {}
+        contacts[sender]['email'] = sender
+        contacts[sender]['realname'] = sender_realname
+        contacts[sender]['gravatar'] = "https://www.gravatar.com/avatar/" + md5(sender.strip().lower()).hexdigest()
+        contacts[sender]['mails'] = []
+
+    contacts[sender]['mails'].append((email.get('Subject'), email.get('Date')))
+
+##### Web Frontend
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return render_template("home.html", contacts=contacts)
+
+@app.route("/contact/<contact>")
+def contact(contact):
+    return render_template("contact.html", c=contacts[contact])
+
+if __name__ == "__main__":
+        app.run(debug=True)
